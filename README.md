@@ -1,1 +1,1 @@
-# diff_encoder_decoder
+# DiNN Framework Description
