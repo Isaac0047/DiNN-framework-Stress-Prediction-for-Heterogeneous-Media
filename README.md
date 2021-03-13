@@ -1,5 +1,6 @@
 # DiNN Framework Description
 
+07/01/2020
 By Haotian Feng, Pavana Prabhakar
 
 University of Wisconsin - Madison
