@@ -15,8 +15,13 @@ This folder provide the code for Difference-based Neural Network Framework, incl
 In this repository, DiNN framework is implemented by Tensorflow.
 DiNN framwork contains two types of DiNN models: DiNN-N and DiNN-NC. For square and hexagonal packed composites, DiNN-N is used. For plate with circular cutout and hollow particle reinforced composite, DiNN-NC is used. 
 
+## Example instruction
+#### Code running with example of plate with circular cutout model
+1. go to folder, use code-name to generate
+2. go to folder, run ...
+
 ## Citation
-If you use our DiNN framework, please consider cite the paper:
+If you use our DiNN framework, please cite the paper as:
 
 `@misc{feng2020differencebased,
       title={Difference-Based Deep Learning Framework for Stress Predictions in Heterogeneous Media}, 
