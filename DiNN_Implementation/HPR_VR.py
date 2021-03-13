@@ -176,6 +176,7 @@ def resnet_block(x,filt):
                                use_bias=True)(x)
     y = tf.keras.layers.ReLU()(y)
     y = tf.keras.layers.BatchNormalization()(y)
+    
     y = tf.keras.layers.Conv2D(filters=filt, kernel_size=[3,3], 
                                padding='same', activation='linear',
                                use_bias=True)(y)
@@ -192,35 +193,6 @@ def deconv_norm_linear(x,filt,kernel,stride,names):
         strides=stride,padding='same',activation='linear', use_bias=True,
         name=names)(x)
     y = tf.keras.layers.Activation(activation='linear')(y)
-    y = tf.keras.layers.BatchNormalization()(y)
-
-    return y
-
-def deconv_norm_sigmoid(x,filt,kernel,stride,names):
-    
-    y = tf.keras.layers.Conv2DTranspose(filters=filt, kernel_size=kernel,
-        strides=stride, padding='same', activation='linear', use_bias=True,
-        name=names)(x)
-    y = tf.keras.layers.Activation(activation='sigmoid')(y)
-    y = tf.keras.layers.BatchNormalization()(y)
-
-    return y
-
-def deconv_norm_relu(x,filt,kernel,stride,names):
-    
-    y = tf.keras.layers.Conv2DTranspose(filters=filt, kernel_size=kernel,
-        strides=stride, padding='same', activation='linear', use_bias=True,
-        name=names)(x)
-    y = tf.keras.layers.ReLU()(y)
-    y = tf.keras.layers.BatchNormalization()(y)
-
-    return y
-
-def deconv_block(x,filt,kernel,stride,names):
-    
-    y = tf.keras.layers.Conv2DTranspose(filters=filt, kernel_size=kernel,
-        strides=stride, padding='same', activation='linear', use_bias=True,
-        name=names)(x)
     y = tf.keras.layers.BatchNormalization()(y)
 
     return y
@@ -293,7 +265,6 @@ history = model.fit([input_train_new, stress_ave_train, One_stress_train], outpu
 # Evaluate the model on test set
 predict = model.predict([input_test_new, stress_ave_test, One_stress_test])
 
-# Evaludate the model on test set
 score = model.evaluate([input_test_new, stress_ave_test, One_stress_test], output_test, verbose=1)
 print('\n', 'Test accuracy', score)
 
@@ -337,7 +308,7 @@ plt.grid(True)
 plt.show()
 fig0_sdf_ave.savefig('sdf_ave.png')
 
-# stress_ave_plot
+# stress average plot
 stress_ave_plot = stress_ave[0,:,:,0]
 
 fig0_stress_ave = plt.figure()
@@ -435,20 +406,29 @@ plt.grid(True)
 plt.show()
 fig3_pred.savefig('Predict_3.png')
 
+# Output the stress difference
+Y_diff = Y_test_1 - predict_1
+fig_diff = plt.figure()
+plt.title('Stress_difference')
+plt.imshow(Y_diff,cmap='rainbow')
+plt.colorbar()
+plt.grid(True)
+plt.show()
+fig_diff.savefig('Stress_difference.png')
+
 #%% Plot outputs of individual layers
 
 # (1) plot the original one
-
 input_image = input_train[0, :, :, 0]
 
 plt.figure()
 plt.title('input contour')
-plt.imshow(input_image)
+plt.imshow(input_image, cmap='rainbow')
 plt.colorbar()
 plt.grid(True)
 plt.show()
 
-# (2) plot individual layer outputs (user can define the layer they want to outptu)
+# (2) plot individual layer outputs (user can define the layer they want to output)
 layer_names = ['conv1','conv2','conv3','deconv1','deconv2','deconv3']
 
 for layer_name in layer_names:
@@ -488,6 +468,7 @@ fig2.savefig('real_stress.png')
 predict_output = predict[:, :, :, 0]
 [p1,p2,p3] = predict_output.shape
 
+# Initialize error matrices
 max_real_fiber  = np.zeros(p1)
 max_real_matrix = np.zeros(p1)
  
@@ -509,7 +490,7 @@ error_min_matrix = np.zeros(p1)
 error_rate_max_fiber  = np.zeros(p1)
 error_rate_max_matrix = np.zeros(p1)
 
-
+# Loop through test sample to calculate average prediction error
 for ip in range(p1):
     
     pos1 = 0
@@ -519,11 +500,9 @@ for ip in range(p1):
         for k in range (m_y):
             
             if P_test[ip][j][k] == 1: 
-            #if tf.math.not_equal(X_test[ip][j][k], 1) and tf.math.not_equal(X_test[ip][j][k], 0):
                 pos1 = pos1 + 1
                 
             elif P_test[ip][j][k] == 2:
-            #elif X_test[ip][j][k] == 1: 
                 pos2 = pos2 + 1
     
     fiber_test_stress  = None
@@ -554,7 +533,8 @@ for ip in range(p1):
                 matrix_test_stress[vector_idx_2] = Y_test[ip,j,k]
                 matrix_pred_stress[vector_idx_2] = predict[ip,j,k]
                 vector_idx_2 = vector_idx_2 + 1
-                
+    
+    # Calculate Maximum Error Rate (MER), Maximum Error Average Rate and Minimum Average Rate
     max_real_fiber[ip]   = np.max(fiber_test_stress)
     max_pred_fiber[ip]   = np.max(fiber_pred_stress)
     
@@ -584,6 +564,7 @@ max_error_matrix      = np.mean(error_max_matrix)
 min_error_fiber       = np.mean(error_min_fiber)
 min_error_matrix      = np.mean(error_min_matrix)
 
+# Print out prediction error results
 print("max error average rate for fiber is:",  max_error_rate_fiber)
 print("max error average rate for matrix is:", max_error_rate_matrix)
 print("max error rate for fiber is:",  max_error_fiber)

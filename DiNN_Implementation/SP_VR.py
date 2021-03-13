@@ -1,10 +1,8 @@
-# -*- coding: utf-8 -*-
-"""
-Created on Sun Aug 11 13:32:21 2019
-
-@author: Haoti
-"""
-
+#%% Description
+#
+# SP_VR refers to square packed reinforced composite model with volume fraction randomness, using DiNN-N framework
+#
+#%% Import Modules
 import tensorflow as tf
 tf.compat.v1.enable_eager_execution()
 import os
@@ -13,7 +11,7 @@ import matplotlib.pyplot as plt
 from sklearn.model_selection import train_test_split
 from time import time
 
-##### SECTION TO RUN WITH GPU #####
+#%% Section To Run With GPU
 
 # Choose GPU to use
 os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID";
@@ -24,33 +22,40 @@ os.environ["CUDA_VISIBLE_DEVICES"]="0";
 Config=tf.compat.v1.ConfigProto(allow_soft_placement=True)
 Config.gpu_options.allow_growth=True
 
-# Load data
-# import Cartesian Map contours
-# CM size 0.25mm
+#%% Load Data and Preprocessing
 
+# Define Cartesian Map grid size (user defined) -- a size matching targetting geometry size is recommended
 rectangle_x = 0.01
 rectangle_y = 0.01
 
+# Total number of dataset (user defined)
 data_set = 1000
 
+# Uniform dimension for input data (Line 61-64 import data of this size)
 n_x = 79
 n_y = 79
+
 grid_dist_x = rectangle_x / n_x
 grid_dist_y = rectangle_y / n_y
 
 m_x = int(n_x + 1)
 m_y = int(n_y + 1)
 
-data_cart_new   = np.zeros((data_set, m_x, m_y))
-data_stress_new = np.zeros((data_set, m_x, m_y))
-data_property   = np.zeros((data_set, m_x, m_y))
+# Initialize data matrices
+data_cart_new   = np.zeros((data_set, m_x, m_y))     # Geometry matrix
+data_stress_new = np.zeros((data_set, m_x, m_y))     # Stress matrix
+data_property   = np.zeros((data_set, m_x, m_y))     # Property matrix
 
+# Record time
 start_1 = time()
 
+# Read data from ABAQUS Analysis result files
 for k in range(data_set):
     
     idx = str(k+1)
     
+    # Load Cartesian Map data (dimension should follow n_x by n_y on line 35-36)
+    # These file paths are subject to change when using in local directory
     txt_cart   = 'C:\\Temp_Abaqus\\micro_meter_model\\fix_hole_composite_small\\Composite_uniform_SDF_Cart_' + idx + '.dat'
     txt_stress = 'C:\\Temp_Abaqus\\micro_meter_model\\fix_hole_composite_small\\Composite_uniform_Stress_Cart_' + idx + '.dat'
 
@@ -59,6 +64,7 @@ for k in range(data_set):
 
     [m,n] = data_cart.shape
 
+    # Reshape input data into matrices
     for i in range(m): 
         x = int(round(data_cart[i][0] / grid_dist_x))
         y = int(round(data_cart[i][1] / grid_dist_y))
@@ -70,55 +76,59 @@ for k in range(data_set):
         data_stress_new[k][y][x] = data_stress[j][2]
         data_property[k][y][x]   = data_stress[j][3]
 
-# Data preprocessing     
+#%% Data Random Split        
 X_train, X_test, Y_train, Y_test, P_train, P_test = train_test_split(data_cart_new, data_stress_new,data_property,test_size=0.1, random_state=47)
 X_train, X_cv,   Y_train, Y_cv,   P_train, P_cv   = train_test_split(X_train,       Y_train,        P_train,      test_size=0.1, random_state=47)
 
+# Reshape data into matrices for neural network training (#sample, X, Y, Feature)
 input_train  = tf.reshape(X_train, [-1, m_x, m_y, 1])
 output_train = tf.reshape(Y_train, [-1, m_x, m_y, 1])
+input_cv  = tf.reshape(X_cv, [-1, m_x, m_y, 1])
+output_cv = tf.reshape(Y_cv, [-1, m_x, m_y, 1])
+input_test  = tf.reshape(X_test, [-1, m_x, m_y, 1])
+output_test = tf.reshape(Y_test, [-1, m_x, m_y, 1])
 
+# Take the reference geometry and stress contour (mean geometry in this code)
 sdf_ave  = tf.reduce_mean(input_train, 0)
 sdf_ave  = tf.reshape(sdf_ave, [-1, m_x, m_y, 1])
 stress_ave = tf.reduce_mean(output_train, 0)
 stress_ave = tf.reshape(stress_ave, [-1, m_x, m_y, 1])
 
+# Calculate the geometry and stress different contour for Training set, Cross-validation set and Test set
 input_train_new  = input_train  - sdf_ave
 output_train_new = output_train - stress_ave
 [s1,s2,s3,s4]    = input_train.shape
+# Repeat the mean contour to match with size of training data
 stress_ave_train = tf.keras.backend.repeat_elements(stress_ave, rep=s1, axis=0)  
 
-input_cv  = tf.reshape(X_cv, [-1, m_x, m_y, 1])
-output_cv = tf.reshape(Y_cv, [-1, m_x, m_y, 1])
 input_cv_new  = input_cv  - sdf_ave
 [c1,c2,c3,c4] = input_cv.shape
+# Repeat the mean contour to match with size of cross-validation data
 stress_ave_cv = tf.keras.backend.repeat_elements(stress_ave, rep=c1, axis=0)
 
-input_test  = tf.reshape(X_test, [-1, m_x, m_y, 1])
-output_test = tf.reshape(Y_test, [-1, m_x, m_y, 1])
+
 input_test_new    = input_test - sdf_ave
 [te1,te2,te3,te4] = input_test.shape
+# Repeat the mean contour to match with size of testing data
 stress_ave_test   = tf.keras.backend.repeat_elements(stress_ave, rep=te1, axis=0) 
 
-################ Normalizing input sdf   ############################
-
+#%% Normalization Module
 max_sdf     = np.max(input_train_new)
 max_stress  = np.max(output_train_new)
 
 min_sdf     = np.min(input_train_new)
 min_stress  = np.min(output_train_new)
 
+# Min-max normalization
 input_train_new = (input_train_new - min_sdf) / (max_sdf - min_sdf)
 input_cv_new    = (input_cv_new - min_sdf) / (max_sdf - min_sdf)
 input_test_new  = (input_test_new - min_sdf) / (max_sdf - min_sdf)
 
-#input_train_new = 2 * (input_train_new - min_sdf) / (max_sdf - min_sdf) - 1
-#input_cv_new    = 2 * (input_cv_new - min_sdf) / (max_sdf - min_sdf) - 1
-#input_test_new  = 2 * (input_test_new - min_sdf) / (max_sdf - min_sdf) - 1
-
+# Take the preprocessing time and start record training time
 t1 = time() - start_1
 start_2 = time()
 
-################ Defining Neural Network ############################
+#%% Defining Neural Network
 
 def conv_relu_block(x,filt,names):
     
@@ -126,7 +136,6 @@ def conv_relu_block(x,filt,names):
                                padding='same', activation='linear', 
                                use_bias=True,name=names)(x)
     y = tf.keras.layers.ReLU()(y)
-    #y = tf.keras.layers.Activation(activation='tanh')(y)
     y = tf.keras.layers.BatchNormalization()(y)
     
     return y
@@ -154,14 +163,14 @@ def resnet_block(x,filt):
                                padding='same', activation='linear', 
                                use_bias=True)(x)
     y = tf.keras.layers.ReLU()(y)
-    #y = tf.keras.layers.Activation(activation='relu')(y)
     y = tf.keras.layers.BatchNormalization()(y)
+   
     y = tf.keras.layers.Conv2D(filters=filt, kernel_size=[3,3], 
                                padding='same', activation='linear',
                                use_bias=True)(y)
     y = tf.keras.layers.ReLU()(y)
-    #y = tf.keras.layers.Activation(activation='relu')(y)
     y = tf.keras.layers.BatchNormalization()(y)
+   
     y = se_block(y,filt)
      
     y = tf.keras.layers.Add()([y,x])
@@ -180,18 +189,6 @@ def deconv_norm_linear(x,filt,kernel,stride,names):
 
     return y
 
-def deconv_norm_sigmoid(x,filt,kernel,stride,names):
-    
-    y = tf.keras.layers.Conv2DTranspose(filters=filt,kernel_size=kernel,
-        strides=stride,padding='same',activation='linear', use_bias=True,
-        name=names)(x)
-    
-    y = tf.keras.layers.Activation(activation='sigmoid')(y)
-    
-    y = tf.keras.layers.BatchNormalization()(y)
-
-    return y
-
 def deconv_block(x,filt,kernel,stride,names):
     
     y = tf.keras.layers.Conv2DTranspose(filters=filt,kernel_size=kernel,
@@ -202,7 +199,7 @@ def deconv_block(x,filt,kernel,stride,names):
 
     return y
 
-##################### Construct Neural Network ################################
+#%% Encoder-Decoder Neural Network Structure
 
 input_layer_1 = tf.keras.Input(shape=(m_x, m_y, 1))
 input_layer_2 = tf.keras.Input(shape=(m_x, m_y, 1))
@@ -223,43 +220,43 @@ resnet_5 = resnet_block(resnet_4, 128)
 deconv_0 = deconv_norm_linear(resnet_5, 128, [2,2], (2,2), 'deconv0')
 deconv_1 = deconv_norm_linear(deconv_0,  64, [2,2], (2,2), 'deconv1')
 deconv_2 = deconv_norm_linear(deconv_1,  32, [2,2], (2,2), 'deconv2')
-deconv_3 = deconv_norm_sigmoid(deconv_2,  1, [1,1], (1,1), 'deconv3')
+deconv_3 = deconv_norm_linear(deconv_2,  1, [1,1], (1,1), 'deconv3')
 
-#deconv_3 = 0.5 * (deconv_3 + 1) * (max_stress - min_stress) + min_stress
 deconv_3 = deconv_3 * (max_stress - min_stress) + min_stress
 
 dense = deconv_3 + input_layer_2
 
 deconv_4 = deconv_norm_linear(dense, 1, [1,1], (1,1), 'deconv4')
 
-#output_layer = tf.keras.layers.ReLU()(deconv_4)
 output_layer = deconv_4
 
 model = tf.keras.models.Model(inputs=[input_layer_1, input_layer_2], outputs=output_layer)
 
 model.summary()
 
-######################## Training the model ########################
+#%% Training The DiNN framework
 
+# Set training optimizer
 sgd = tf.keras.optimizers.SGD(lr=1e-3, decay=1e-6, momentum=0.6, nesterov=True)
+
+# Compile the model
 model.compile(optimizer=sgd, loss='mean_squared_error', metrics=['accuracy'])
 
 epoch = 80
+# Fit (Train) the model
 history = model.fit([input_train_new, stress_ave_train], output_train, batch_size=256, epochs=epoch, 
                     steps_per_epoch=40, validation_data=([input_cv_new, stress_ave_cv], output_cv))
 
-# new_rows = ((rows - 1) * strides[0] + kernel_size[0] - 2 * padding[0] + output_padding[0])
-# new_cols = ((cols - 1) * strides[1] + kernel_size[1] - 2 * padding[1] + output_padding[1])
 # Evaluate the model on test set
-
 predict = model.predict([input_test_new, stress_ave_test])
 
 score = model.evaluate([input_test_new, stress_ave_test], output_test, verbose=1)
 print('\n', 'Test accuracy', score)
 
+# Record Neural Network Training and Prediction Time
 t2 = time() - start_2 
 
-### Generating history plots of training ###
+#%% Generating history plots of training
 
 # Summarize history for accuracy
 fig_acc = plt.figure()
@@ -283,8 +280,9 @@ plt.legend(['train', 'test'], loc='upper left')
 plt.show()
 fig_loss.savefig('training_loss.png')
 
-### Plot and generate graphs for test samples ###
+#%% Plot and generate graphs for test samples
 
+# Geometry average plot
 sdf_ave_plot = sdf_ave[0,:,:,0]
 
 fig0_sdf_ave = plt.figure()
@@ -295,6 +293,7 @@ plt.grid(True)
 plt.show()
 fig0_sdf_ave.savefig('sdf_ave.png')
 
+# Stress average plot
 stress_ave_plot = stress_ave[0,:,:,0]
 
 fig0_stress_ave = plt.figure()
@@ -305,7 +304,7 @@ plt.grid(True)
 plt.show()
 fig0_stress_ave.savefig('stress_ave.png')
 
-# The first dataset
+# The first test set
 X_test_1 = input_test_new[0, :, :, 0]
 Y_test_1 = output_test[0, :, :, 0]
 
@@ -334,11 +333,7 @@ plt.grid(True)
 plt.show()
 fig1_pred.savefig('Predict_1.png')
 
-#sess = tf.InteractiveSession()
-#conv_output = conv_rs3.numpy()
-#print(type(conv_output))
-
-# The second dataset
+# The second test set
 X_test_2 = input_test_new[3, :, :, 0]
 Y_test_2 = output_test[3, :, :, 0]
 
@@ -367,7 +362,7 @@ plt.grid(True)
 plt.show()
 fig2_pred.savefig('Predict_2.png')
 
-# The third dataset
+# The third test set
 X_test_3 = input_test_new[8, :, :, 0]
 Y_test_3 = output_test[8, :, :, 0]
 
@@ -406,9 +401,9 @@ plt.grid(True)
 plt.show()
 fig_diff.savefig('Stress_difference.png')
 
-# Plot out what each layer is doing
-## first plot the original one
+#%% Plot outputs of individual layers
 
+# (1) plot the original one
 input_image = input_train[0, :, :, 0]
 
 plt.figure()
@@ -418,11 +413,7 @@ plt.colorbar()
 plt.grid(True)
 plt.show()
 
-# Second plot what each layer is doing 
-#layer_names = ['conv1','pool1','conv2','pool2','conv3','dense1','dense2',
-#              'dense3','dense4','deconv1','deconv2']
-
-#layer_names = ['conv1','conv2','conv3','deconv1','deconv2','deconv3','dense_block','deconv4']
+# (2) plot individual layer outputs (user can define the layer they want to output)
 layer_names = ['conv1','conv2','conv3','deconv0','deconv1','deconv2','deconv3','deconv4']
 
 for layer_name in layer_names:
@@ -445,7 +436,7 @@ for layer_name in layer_names:
         name_layer = layer_name_new + '.png'
         fig.savefig(name_layer)
     
-# Third plot the real stress contour
+# (3) plot the real stress contour
 output_image = output_train[0,:,:,0]
 
 fig2 = plt.figure()
@@ -457,11 +448,11 @@ plt.show()
 
 fig2.savefig('real_stress.png')
 
-# Calculate max stress difference in test set
-
+#%% Evaluate prediction errors of DiNN
 predict_output = predict[:, :, :, 0]
 [p1,p2,p3] = predict_output.shape
 
+# Initialize error matrices
 max_real_fiber  = np.zeros(p1)
 max_real_matrix = np.zeros(p1)
  
@@ -483,7 +474,7 @@ error_min_matrix = np.zeros(p1)
 error_rate_max_fiber  = np.zeros(p1)
 error_rate_max_matrix = np.zeros(p1)
 
-
+# Loop through test sample to calculate average prediction error
 for ip in range(p1):
     
     pos1 = 0
@@ -511,6 +502,7 @@ for ip in range(p1):
     vector_idx_1 = 0
     vector_idx_2 = 0
 
+    # Calculate prediction errors in domains with different properties
     for j in range(m_x):
         for k in range(m_y):
             
@@ -526,7 +518,7 @@ for ip in range(p1):
                 matrix_pred_stress[vector_idx_2] = predict[ip,j,k]
                 vector_idx_2 = vector_idx_2 + 1
                 
-
+    # Calculate Maximum Error Rate (MER), Maximum Error Average Rate and Minimum Average Rate
     max_real_fiber[ip]   = np.max(fiber_test_stress)
     max_pred_fiber[ip]   = np.max(fiber_pred_stress)
     
@@ -556,6 +548,7 @@ max_error_matrix      = np.mean(error_max_matrix)
 min_error_fiber       = np.mean(error_min_fiber)
 min_error_matrix = np.mean(error_min_matrix)
 
+# Print out prediction error results
 print("max error average rate for fiber is:",  max_error_rate_fiber)
 print("max error average rate for matrix is:", max_error_rate_matrix)
 print("max error rate for fiber is:",  max_error_fiber)
@@ -563,20 +556,11 @@ print("max error rate for matrix is:", max_error_matrix)
 print("min error rate for fiber is:",  min_error_fiber)
 print("min error rate for matrix is:", min_error_matrix)
 
+#%% Save the training results 
 result = np.savetxt('result_summary.txt',
                     (max_error_rate_fiber,max_error_rate_matrix,max_error_fiber,max_error_matrix,min_error_fiber,min_error_matrix,t1,t2,score[0]),
                     header='fiber max error average rate,matrix max error average rate,fiber max error rate,matrix max error rate,fiber min error rate,matrix min error rate,data_process,training_time,score')
 
 # Plot CNN Model
-
 tf.keras.utils.plot_model(model, to_file='model.png')
-
 model.save('my_model.h5')
-
-#%%
-
-plt.imshow(output_test[5,:,:,0]-stress_ave[0,:,:,0], cmap='rainbow')
-plt.colorbar()
-
-plt.imshow(output_test[0,:,:,0]-stress_ave[0,:,:,0], cmap='rainbow')
-plt.colorbar()
